@@ -1,0 +1,6 @@
+---
+- name: Configuração base do laboratório
+  hosts: all
+  become: true
+  roles:
+    - common
