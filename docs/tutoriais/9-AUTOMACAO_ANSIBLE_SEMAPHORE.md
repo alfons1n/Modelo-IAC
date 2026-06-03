@@ -1,154 +1,109 @@
-# Fase 4: Automação de Configurações com Ansible no Semaphore UI
+# Fase 4: Automação com Ansible via Semaphore
 
-Com a infraestrutura dos contêineres LXC já provisionada pelo Terraform (Fase 3), avançamos agora para a **Fase 4** do projeto: a automação das configurações internas utilizando o **Ansible**, orquestrado pela interface gráfica do **Semaphore UI**.
+Este documento descreve a automação de configuração (Fase 4) usando o conteúdo real em `ansible/` do repositório. O Ansible é responsável por configurar os LXC provisionados pelo Terraform — instalar pacotes, criar o usuário do Semaphore, injetar chaves SSH e executar validações.
 
-Enquanto o Terraform responde à pergunta *"O que deve existir?"* (criar máquinas, redes, discos), o Ansible responde à pergunta *"Como deve estar configurado?"* (instalar pacotes, configurar serviços, aplicar políticas). Juntos, eles completam o ciclo da Infraestrutura como Código.
+Resumo rápido:
+- Inventários: `ansible/invs/lxc/hosts`
+- Roles principais: `ansible/roles/bootstrap` e `ansible/roles/ping-alunos`
+- Playbooks de uso: `ansible/bootstrap-infra.yaml`, `ansible/ping-alunos.yml`
 
-> **Referências oficiais:**
-> - Instalação do Semaphore: [semaphoreui.com/install](https://semaphoreui.com/install)
-> - Documentação completa: [semaphoreui.com/docs](https://semaphoreui.com/docs)
-> - Repositório de exemplo: [github.com/semaphoreui/semaphore-demo](https://github.com/semaphoreui/semaphore-demo)
+## 1. Organização do código
 
----
+O diretório `ansible/` contém playbooks, inventários e roles usados pelo Semaphore. A organização relevante é:
 
-## 1. Estrutura do Código Ansible (Organização por Roles)
+- `ansible/invs/lxc/hosts` — inventário dos contêineres dos alunos
+- `ansible/roles/bootstrap/tasks/main.yml` — tarefas de bootstrap (update, pacotes, usuário `semaphore`, injeção de chave)
+- `ansible/roles/ping-alunos/tasks/main.yml` — role simples de verificação (ping + debug)
+- `ansible/ping-alunos.yml` — playbook de teste que executa a role de *ping*
+- `ansible/bootstrap-infra.yaml` — playbook orquestrador com fases (dinâmico, validações, instalação)
 
-Assim como qualquer linguagem de programação, o código Ansible pode ser escrito de várias maneiras. Porém, para manter a organização e facilitar o entendimento por terceiros, adotamos a mesma lógica do repositório oficial [semaphore-demo](https://github.com/semaphoreui/semaphore-demo), que separa os blocos essenciais de forma clara.
+Use esses arquivos como fonte da verdade ao configurar tarefas no Semaphore.
 
-A nossa implementação encontra-se no diretório `semaphore/` deste repositório, com a seguinte estrutura:
+## 2. Inventário
 
-![Estrutura de diretórios do Ansible no projeto](../../imagens/semaphore/semaphore-estrutura.png)
-
-```
-semaphore/
-│
-├── invs/                          ← Inventários (QUEM será acessado)
-│   ├── proxmox/hosts              ← Cluster Proxmox
-│   └── lxc/hosts                  ← Contêineres dos alunos
-│
-├── roles/                         ← Roles (O QUE será feito)
-│   ├── ping-proxmox/tasks/main.yml
-│   ├── ping-alunos/tasks/main.yml
-│   └── start-alunos/tasks/main.yml
-│
-├── ping-proxmox.yml               ← Playbooks (COMO orquestrar)
-├── ping-alunos.yml
-├── start-proxmox.yml
-├── start.yml
-└── stop-proxmox.yml
-```
-
-### Entendendo os 3 Blocos Essenciais
-
-Para que qualquer pessoa consiga compreender e replicar o projeto, é fundamental entender o papel de cada bloco:
-
-**📋 Inventário (Inventory)** — *QUEM será acessado*
-> O inventário é a "lista de alvos" do Ansible. É um arquivo de texto simples (formato INI) que declara os endereços IP ou nomes das máquinas que serão gerenciadas. Sem um inventário definido, o Ansible não sabe para onde enviar os comandos. **Nada funciona sem ele.**
-
-**🔧 Roles** — *O QUE será feito em cada alvo*
-> Uma Role é um "pacote de instruções" reutilizável. Ela agrupa as tarefas (tasks), variáveis, templates e configurações relacionadas a uma única responsabilidade. Por exemplo: a role `ping-proxmox` contém especificamente as tarefas de verificar a conectividade com o cluster Proxmox. Essa separação permite reaproveitar a mesma role em diferentes playbooks e projetos.
-
-**📖 Playbooks (Tasks)** — *COMO orquestrar a execução*
-> A Playbook é o "documento maestro" que conecta QUEM (inventário) com O QUE (roles). Ela define: *"Execute a role X nos hosts do grupo Y."* É o arquivo que o Semaphore aponta para iniciar uma tarefa automatizada.
-
----
-
-## 2. Definição dos Inventários
-
-A primeira e mais importante configuração é a definição dos inventários, pois é neles que o Ansible busca o endereço de cada alvo para estabelecer a conexão SSH.
-
-### 2.1. Inventário do Cluster Proxmox
-
-O nosso primeiro alvo é o servidor hipervisor. Para isso, criamos o arquivo `semaphore/invs/proxmox/hosts`:
-
-```ini
-[proxmox]
-pve ansible_host=10.7.0.47 equipamento="cluster"
-```
-
-- **`[proxmox]`** — Nome do grupo. É este nome que as playbooks referenciam no campo `hosts:`.
-- **`pve`** — Apelido (alias) amigável para o servidor, em vez de usar o IP diretamente.
-- **`ansible_host=10.7.0.47`** — O endereço IP real onde o Ansible irá conectar via SSH.
-- **`equipamento="cluster"`** — Variável personalizada que carregamos para identificar o tipo de equipamento nos relatórios e logs.
-
-![Inventário do Proxmox no repositório](../../imagens/semaphore/semaphore-invs-proxmox.png)
-
-### 2.2. Inventário dos Contêineres LXC (Alunos)
-
-Igualmente, criamos o inventário para os contêineres dos alunos que foram provisionados pelo Terraform na fase anterior. O arquivo está em `semaphore/invs/lxc/hosts`:
+O inventário está em `ansible/invs/lxc/hosts` e contém entradas como:
 
 ```ini
 [alunos]
-aluno-01 ansible_host=[IP_ADDRESS]
-aluno-02 ansible_host=[IP_ADDRESS]
+aluno-01 ansible_host=10.0.40.201
+aluno-02 ansible_host=10.0.40.202
 
 [alunos:vars]
 local="LAB REDES"
 equipamento="LXC"
 ```
 
-- **`[alunos]`** — Grupo contendo todos os contêineres de alunos.
-- **`aluno-01` / `aluno-02`** — Nomes amigáveis que correspondem exatamente aos hostnames gerados pelo Terraform (`format("aluno-%02d", i + 1)`).
-- **`[alunos:vars]`** — Bloco especial que define variáveis aplicadas automaticamente a **todos** os membros do grupo, evitando repetição. Todo aluno herda `local="LAB REDES"` e `equipamento="LXC"`.
+Este inventário é usado pelos playbooks de teste e pelo bootstrap. Para execuções no Semaphore, você pode manter esse inventário no repositório ou construir um inventário dinâmico a partir das variáveis que o Semaphore recebe (veja `bootstrap-infra.yaml`).
 
----
+## 3. Role de bootstrap (configuração inicial)
 
-## 3. Primeira Tarefa: Ping no Proxmox
+A role `bootstrap` (arquivo `ansible/roles/bootstrap/tasks/main.yml`) executa, entre outros passos:
 
-Com os inventários definidos, podemos criar a nossa primeira tarefa de validação: verificar se o Ansible consegue se comunicar com o cluster Proxmox.
+- Atualização do APT e upgrade do sistema
+- Instalação de pacotes essenciais (e.g. `python3`, `sudo`, `curl`, `locales`)
+- Configuração de timezone e locale
+- Criação do grupo `semaphore` e do usuário `semaphore`
+- Configuração de sudo sem senha para `semaphore`
+- Busca da chave SSH pública no Vault e injeção no `authorized_keys` do usuário `semaphore`
 
-### 3.1. A Playbook (`ping-proxmox.yml`)
+A busca da chave utiliza lookup para o Vault (variáveis de ambiente `VAULT_TOKEN` e `VAULT_ADDR` são esperadas no ambiente do Semaphore):
+
+- A key pública é obtida e armazenada em `vault_ssh_key` e em seguida aplicada via `authorized_key`.
+
+Observação: o playbook presume que a execução inicial (pelo menos do inventário dinâmico) é realizada como `root` ou com credenciais que permitam criar o usuário `semaphore`. Posteriormente as fases usam o usuário `semaphore` para executar tarefas seguras.
+
+## 4. Playbooks principais
+
+- `ansible/ping-alunos.yml` — Playbook curto para testar conectividade contra o grupo `alunos`. Útil para validar acesso SSH e inventário.
 
 ```yaml
-- hosts: proxmox
+- name: Teste de Conectividade com Alunos
+  hosts: alunos
+  gather_facts: true
   roles:
-  - ping-proxmox
+  - ping-alunos
 ```
 
-Este arquivo é intencionalmente simples e direto:
-- **`hosts: proxmox`** — Informa ao Ansible para buscar no inventário o grupo chamado `proxmox` e executar as instruções em todos os membros desse grupo.
-- **`roles: - ping-proxmox`** — Delega a execução para a role `ping-proxmox`, que contém as tarefas reais a serem executadas.
+- `ansible/bootstrap-infra.yaml` — Orquestrador mais completo que contém fases: construção de inventário dinâmico (recebendo a lista `lxcs` do Semaphore), validações de conectividade, verificações de sistema/rede e instalação de ferramentas (fase de bootstrap completa). Use este playbook para rodar a configuração centralizada via Semaphore.
 
-### 3.2. A Role (`roles/ping-proxmox/tasks/main.yml`)
+## 5. Fluxo sugerido no Semaphore
 
-```yaml
-- name: Ping proxmox
-  ansible.builtin.ping:
-  register: status_out
+1. Crie um repositório Git (privado) contendo todo o diretório `ansible/` e adicione-o ao Semaphore (Repositories).
 
-- name: Equipamento
-  debug:
-    msg: "{{ equipamento }} {{ local }}"
+  Neste projeto foi criado um repositório Git privado separado para o código Ansible, seguindo a mesma abordagem adotada para o Terraform. O Semaphore foi configurado para apontar para esse repositório e puxar os playbooks/roles a cada execução.
+2. Configure variáveis de ambiente no Semaphore:
+   - `VAULT_ADDR` e `VAULT_TOKEN` (ou configure integração com Vault conforme seu fluxo)
+   - quaisquer outras variáveis necessárias pelo playbook (ex.: lista `lxcs` quando usar inventário dinâmico)
+3. Crie um template/task que execute `ansible-playbook ansible/bootstrap-infra.yaml` (ou `ansible/ping-alunos.yml` para testes rápidos).
+4. Execute em modo *dry-run* inicialmente (adapte com `--check` se necessário) para validar inventário e conexões.
 
-- name: Relatorio
-  debug:
-    var: status_out
+Exemplo de comando (podendo ser usado como step no Semaphore):
+
+```bash
+ansible-playbook ansible/ping-alunos.yml -i ansible/invs/lxc/hosts
+# ou para o bootstrap completo (o Semaphore passa variáveis para o playbook)
+ansible-playbook ansible/bootstrap-infra.yaml
 ```
 
-Detalhamento de cada tarefa:
+## 6. Observações operacionais e segurança
 
-1. **`Ping proxmox`** — Utiliza o módulo nativo `ansible.builtin.ping` para testar a comunicação SSH com o host alvo. O resultado é armazenado na variável `status_out` pelo comando `register`.
+- A primeira execução de bootstrap realiza operações como atualização de pacotes e criação do usuário `semaphore`. Garanta que a conta que executa esse playbook tenha privilégios de root (normalmente via chaves SSH injetadas pelo Terraform).
+- A chave SSH do usuário `semaphore` é lida do Vault — proteja o token do Vault no Semaphore (use secret env vars).
+- O playbook `bootstrap-infra.yaml` contém validações de rede e sistema; falhas nessas validações devem ser tratadas antes de avançar para instalações em massa.
 
-2. **`Equipamento`** — Exibe no log as variáveis `equipamento` e `local` que foram definidas no inventário. Isso confirma que o Ansible está lendo corretamente os metadados associados a cada host.
+## 7. Debug e resultados típicos
 
-3. **`Relatorio`** — Imprime o conteúdo completo da variável `status_out`, permitindo verificar no log se o ping retornou `"pong"` (sucesso) ou uma mensagem de erro.
+- Use `ansible -m ping all -i ansible/invs/lxc/hosts` para um teste rápido.
+- O playbook `ping-alunos` retorna mensagens de debug com as variáveis `equipamento` e `local`, confirmando que o inventário foi lido corretamente.
 
-### 3.3. Resultado da Execução no Semaphore
+## 8. Referências e próximos passos
 
-Ao executar esta tarefa pela interface do Semaphore, podemos acompanhar o resultado em tempo real:
-
-![Resultado da tarefa de ping no Proxmox executada pelo Semaphore](../../imagens/semaphore/semaphore-task-proxmox-ping.png)
+- Ver os arquivos fonte em: `ansible/invs/lxc/hosts`, `ansible/roles/bootstrap/tasks/main.yml`, `ansible/ping-alunos.yml`, `ansible/bootstrap-infra.yaml`.
+- Se desejar, eu posso:
+  - adicionar um `ansible.cfg` mínimo ao repositório,
+  - criar um playbook de *rollback* simples,
+  - ou gerar um template de pipeline do Semaphore com passos e variáveis exemplo.
 
 ---
 
-## 4. Configuração do Repositório Ansible no Semaphore
-
-Os mesmos passos demonstrados anteriormente para o repositório do Terraform são repetidos agora para o repositório Ansible. A grande vantagem é que a chave de API do GitHub já está configurada no Semaphore desde a Fase 3, então o acesso ao novo repositório privado é imediato.
-
-O procedimento consiste em:
-1. Publicar todo o conteúdo da pasta `semaphore/` em um repositório privado no GitHub (via `git add`, `commit` e `push`).
-2. Acessar a interface do Semaphore e adicionar o novo repositório na seção de **Repositories**.
-
-![Repositório do Ansible configurado com sucesso no Semaphore](../../imagens/semaphore/semaphore-github-created.png)
-
-Com o repositório vinculado, qualquer nova playbook ou role adicionada ao código será automaticamente acessível pelo Semaphore na próxima execução, bastando um simples `git push` para atualizar.
+Arquivo atualizado automaticamente a partir do conteúdo de `ansible/`.
