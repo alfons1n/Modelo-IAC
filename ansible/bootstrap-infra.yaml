@@ -1,0 +1,8 @@
+---
+- name: Bootstrap e Padronização de Containers LXC
+  hosts: alunos
+  gather_facts: true
+  remote_user: root # Conecta como root usando a chave injetada pelo Terraform
+
+  roles:
+  - bootstrap

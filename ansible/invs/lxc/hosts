@@ -1,0 +1,7 @@
+[alunos]
+aluno-01 ansible_host=10.0.40.201
+aluno-02 ansible_host=10.0.40.202
+
+[alunos:vars]
+local="LAB REDES"
+equipamento="LXC"

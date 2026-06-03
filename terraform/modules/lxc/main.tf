@@ -10,7 +10,7 @@ terraform {
 }
 
 resource "proxmox_virtual_environment_container" "infra_service" {
-  # 👇 CORREÇÃO 1: Na versão 0.101.0 usa-se vm_id com underline
+  
   vm_id        = var.vmid 
   node_name    = var.target_node
   tags         = sort(var.tags)
@@ -26,10 +26,8 @@ resource "proxmox_virtual_environment_container" "infra_service" {
     swap      = var.swap
   }
 
-  # start_on_boot substitui o start_after_create em estruturas modernas.
   start_on_boot = true
-
-  #BLOCO DINÂMICO: O módulo não assume NADA fixo, ele apenas monta o que a camada pedir
+  
   dynamic "network_interface" {
     for_each = var.network_interfaces
     content {

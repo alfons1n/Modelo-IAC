@@ -1,5 +1,0 @@
----
-- name: Bootstrap inicial do laboratório
-  hosts: all
-  become: true
-  tasks: []

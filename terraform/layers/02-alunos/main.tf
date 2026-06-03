@@ -1,9 +1,8 @@
-module "gerencia_infrastructure" {
-  source   = "../../modules/lxc-core-service"
+module "alunos" {
+  source   = "../../modules/lxc"
   for_each = local.alunos_turma_a
 
   vmid              = each.value.vmid
-  vmid              = 0
   hostname          = each.value.hostname
   target_node       = each.value.target_node
   

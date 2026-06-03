@@ -1,0 +1,148 @@
+---
+###############################################################################
+# RESETAR STATUS DE ERROS PASSADOS
+###############################################################################
+- name: "Resetar status de erros passados"
+  hosts: localhost
+  connection: local
+  gather_facts: no
+
+  tasks:
+    - name: Limpar erros de hosts
+      meta: clear_host_errors
+
+###############################################################################
+# FASE 1 — CONSTRUIR INVENTÁRIO DINÂMICO
+###############################################################################
+- name: "Fase 1: Construir Inventário Dinâmico"
+  hosts: localhost
+  connection: local
+  gather_facts: no
+  become: false
+
+  tasks:
+    - name: Debug – Variáveis recebidas do Semaphore
+      debug:
+        var: lxcs
+
+    - name: Adicionar hosts ao inventário dinâmico
+      add_host:
+        name: "{{ item.hostname }}"
+        ansible_host: "{{ item.ip }}"
+        ansible_user: semaphore
+        groups: lxcs_descobertos
+      loop: "{{ lxcs }}"
+
+###############################################################################
+# FASE 2 — VALIDAÇÃO DE CONECTIVIDADE (SSH)
+###############################################################################
+- name: "Fase 2: Validar conectividade SSH"
+  hosts: lxcs_descobertos
+  gather_facts: no
+  become: false
+  ignore_unreachable: true
+
+  tasks:
+    - name: Aguardar SSH ficar disponível
+      wait_for_connection:
+        timeout: 60
+      register: ssh_status
+      ignore_errors: true
+
+    - name: Remover host se SSH falhar
+      meta: end_host
+      when: ssh_status is failed
+
+###############################################################################
+# FASE 3 — VALIDAÇÕES DE SISTEMA E REDE
+###############################################################################
+- name: "Fase 3: Validar sistema e rede"
+  hosts: lxcs_descobertos
+  gather_facts: yes
+  become: false
+
+  tasks:
+    - name: Validar sistema operacional
+      assert:
+        that:
+          - ansible_system == "Linux"
+        fail_msg: "Sistema operacional incompatível"
+
+    - name: Validar IP na subnet correta
+      assert:
+        that:
+          - ansible_default_ipv4.address is match("^10\\.0\\.40\\.")
+        fail_msg: "IP fora da rede esperada"
+
+    - name: Validar gateway
+      assert:
+        that:
+          - ansible_default_ipv4.gateway == "10.0.40.254"
+        fail_msg: "Gateway incorreto"
+
+    - name: Validar DNS
+      command: getent hosts google.com
+      register: dns_test
+      changed_when: false
+
+    - name: Falhar se DNS não funcionar
+      assert:
+        that:
+          - dns_test.rc == 0
+        fail_msg: "DNS não está funcional"
+
+###############################################################################
+# FASE 4 — INSTALAÇÃO DE FERRAMENTAS ESSENCIAIS
+###############################################################################
+- name: "Fase 4: Instalar pacotes base"
+  hosts: lxcs_descobertos
+  become: true
+  gather_facts: no
+
+  tasks:
+    - name: Atualizar cache do APT e instalar ferramentas
+      ansible.builtin.apt:
+        name:
+          - vim
+          - nano
+          - unzip
+          - htop
+          - mtr
+          - nmap
+          - whois
+          - python3
+          - python3-pip
+          - openssh-server
+          - iperf3
+          - net-tools
+          - sudo
+          - locales
+          - systemd-timesyncd
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Configurar timezone para America/Porto_Velho
+      community.general.timezone:
+        name: America/Porto_Velho
+
+    - name: Garantir geração do locale pt_BR.UTF-8
+      ansible.builtin.locale_gen:
+        name: pt_BR.UTF-8
+        state: present
+
+    - name: Definir locale padrão (compatível com LXC)
+      ansible.builtin.copy:
+        dest: /etc/locale.conf
+        content: |
+          LANG=pt_BR.UTF-8
+
+    - name: Garantir que o systemd-timesyncd está rodando
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        state: started
+        enabled: yes
+
+    - name: Finalização
+      debug:
+        msg: "Host {{ inventory_hostname }} ({{ ansible_host }}) atualizado com todas as ferramentas essenciais."

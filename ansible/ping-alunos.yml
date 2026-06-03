@@ -1,0 +1,7 @@
+---
+- name: Teste de Conectividade com Alunos
+  hosts: alunos
+  gather_facts: true
+
+  roles:
+  - ping-alunos

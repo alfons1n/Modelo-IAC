@@ -1,0 +1,73 @@
+---
+- name: Garantir que o cache do apt está atualizado e fazer upgrade do sistema
+  ansible.builtin.apt:
+    update_cache: true
+    upgrade: dist
+    cache_valid_time: 3600
+
+- name: Instalar pacotes essenciais de sistema e rede
+  ansible.builtin.apt:
+    name:
+      - nano
+      - unzip
+      - python3
+      - python3-pip
+      - sudo
+      - locales
+      - systemd-timesyncd
+      - curl
+    state: present
+
+- name: Configurar timezone para America/Porto_Velho
+  community.general.timezone:
+    name: America/Porto_Velho
+
+- name: Garantir geração do locale pt_BR.UTF-8
+  ansible.builtin.locale_gen:
+    name: pt_BR.UTF-8
+    state: present
+
+- name: Definir locale padrão (compatível com LXC)
+  ansible.builtin.copy:
+    dest: /etc/locale.conf
+    content: |
+      LANG=pt_BR.UTF-8
+
+- name: Criar o grupo do sistema para o Semaphore
+  ansible.builtin.group:
+    name: semaphore
+    state: present
+
+- name: Criar o usuário 'semaphore' com shell padrão bash
+  ansible.builtin.user:
+    name: semaphore
+    group: semaphore
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Configurar sudo sem senha para o usuário semaphore
+  ansible.builtin.copy:
+    content: "semaphore ALL=(ALL) NOPASSWD:ALL"
+    dest: /etc/sudoers.d/semaphore
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Buscar a chave SSH pública direto do HashiCorp Vault
+  set_fact:
+    vault_ssh_key: >-
+      {{
+        lookup(
+          'community.hashi_vault.hashi_vault',
+          'secret=senhas/data/proxmox',
+          token=lookup('env', 'VAULT_TOKEN'),
+          url=lookup('env', 'VAULT_ADDR'),
+          validate_certs=False
+        ).ssh_public_key_semaphore
+      }}
+
+- name: Injetar a chave SSH pública no usuário semaphore
+  ansible.builtin.authorized_key:
+    user: semaphore
+    state: present
+    key: "{{ vault_ssh_key }}"

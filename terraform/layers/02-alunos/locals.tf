@@ -1,5 +1,4 @@
 # layers/02-alunos/locals.tf
-
 locals {
   network_management = {
     bridge      = "vmbr0"
@@ -17,8 +16,8 @@ locals {
 
   alunos_turma_a = {
     "aluno-01" = {
-      #vmid              = 300
-      hostname          = "docker-gerencia.infra.local"
+      vmid              = null
+      hostname          = "aluno-01.local"
       target_node       = "testpve01"
       pool_id           = "turma-a" 
       template_id       = "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
@@ -35,10 +34,10 @@ locals {
       root_disk_size    = 8 
     },
     "aluno-02" = {
-      #vmid              = 301
-      hostname          = "docker-gerencia-02.infra.local"
+      vmid              = null
+      hostname          = "aluno-02.local"
       target_node       = "testpve02"
-      pool_id           = "teste-infra" 
+      pool_id           = "turma-a" 
       template_id       = "local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst"
       os_type           = "debian"
       cores             = 4  

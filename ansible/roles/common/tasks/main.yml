@@ -1,4 +1,0 @@
----
-- name: Registrar role common
-  ansible.builtin.debug:
-    msg: "Role common pronta para receber tarefas reutilizáveis."

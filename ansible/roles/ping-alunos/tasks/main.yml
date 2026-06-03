@@ -1,0 +1,11 @@
+- name: Ping all hosts
+  ansible.builtin.ping:
+  register: status_out
+
+- name: Equipamento
+  debug:
+    msg: "{{ equipamento }} {{ local }}"
+
+- name: Relatorio
+  debug:
+    var: status_out
